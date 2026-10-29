@@ -22,23 +22,16 @@ For a standard 64-bit Intel/AMD laptop, use Debian's official [installation guid
 
 ### 2. Run the installer on the panel
 
-Log in to the XFCE desktop on the panel and open **Terminal** from the Applications menu. Run the following commands there as the normal desktop user (not as `root`):
+Log in to the XFCE desktop on the panel and open **Terminal** from the Applications menu. Download the small shell launcher and run it as the normal desktop user (not as `root`):
 
 ```sh
-sudo apt-get update
-sudo apt-get install -y git
-git clone https://github.com/JirLap/PCX86-kiosk-debian.git
-cd PCX86-kiosk-debian
-python3 install.py
+wget -O ~/pcx86-kiosk-install.sh https://raw.githubusercontent.com/JirLap/PCX86-kiosk-debian/main/install.sh
+sh ~/pcx86-kiosk-install.sh
 ```
 
-If you already cloned the repository, update it and run the installer from its directory instead:
+The shell launcher downloads the full source archive (including the Python installer and its required `src/` files) to a temporary folder, then starts the interactive installer. The temporary download is removed when the installer exits. To review the launcher first, open `~/pcx86-kiosk-install.sh` in a text editor before running it. Do not pipe it directly into `sh`: the installer needs the terminal input for its setup questions.
 
-```sh
-cd ~/PCX86-kiosk-debian
-git pull
-python3 install.py
-```
+When a newer version is available, run the same `wget` command again to replace the launcher, then run `sh ~/pcx86-kiosk-install.sh`. The persistent configuration is under `~/.config/pcx86-kiosk/`, outside the temporary source folder.
 
 Do **not** prepend `sudo` to `python3 install.py`; the installer asks for `sudo` only for the limited system-level steps. On the first run on Panel-patro, enter the broker address, port, device ID (`patro`), MQTT username/password, and the panel's initial kiosk URL. The password prompt is hidden. At the end, answer whether to enable automatic XFCE login. The installer reports where it saved the configuration and any backup. Log out and back in, or reboot, to start the new agent.
 
