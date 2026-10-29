@@ -79,7 +79,7 @@ The installer installs `/usr/local/sbin/pcx86-power` and one sudoers rule limite
 
 ## Upgrade and remove
 
-Re-run `python3 install.py` to replace the agent while backing up its existing JSON settings. To remove the integration, delete its entry from Home Assistant and remove the user autostart file, `~/.local/lib/pcx86-kiosk`, `~/.config/pcx86-kiosk`, `/etc/sudoers.d/pcx86-kiosk`, and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM config only if it was installed by this project.
+Re-running `python3 install.py` replaces the agent and writes a backup of the current JSON config to `~/.config/pcx86-kiosk/config.json.bak`; the installer does not automatically reuse that config, and a later run overwrites this single backup. For removal, delete the integration entry from Home Assistant and remove the user autostart file, `~/.local/lib/pcx86-kiosk`, `~/.config/pcx86-kiosk`, `/etc/sudoers.d/pcx86-kiosk`, and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM config only if it was installed by this project.
 
 ## Diagnostics
 
