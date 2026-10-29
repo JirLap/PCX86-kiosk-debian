@@ -36,9 +36,9 @@ Do **not** prepend `sudo` to `python3 install.py`; the installer asks for `sudo`
 
 ### Important when testing on an existing, partially configured panel
 
-The current development installer is not yet verified as a safe migration tool. It installs packages, replaces the PCX86 agent/configuration and autostart entry, and when it finds the older `panel-mqtt-agent.desktop`, disables it while keeping a backup. It also installs a restricted sudoers rule and optionally enables LightDM automatic login. It does not import settings from the old agent automatically. Re-enter the correct broker and device ID (`patro` on Panel-patro) and keep a separate copy of any old MQTT configuration before a future test.
+The installer can be run on an existing Debian/XFCE panel, but it is still a development build and has not been verified on Panel-patro. It installs packages, replaces the PCX86 agent/configuration and autostart entry, and when it finds the older `panel-mqtt-agent.desktop`, disables it while keeping a timestamped backup. It also installs a restricted sudoers rule and optionally enables LightDM automatic login. The first run does not import settings from the older panel agent or its MQTT client configuration; enter the correct broker, account, password and kiosk URL manually (`patro` is the device ID for Panel-patro).
 
-Re-running with the same answers is intended to replace the installed agent, but it is **not yet verified as safely repeatable**: each run overwrites `~/.config/pcx86-kiosk/config.json.bak` with the then-current config, so that single backup is not a versioned history. Do not treat repeated runs as a rollback mechanism. Log out/in or reboot after a successful test run to start the agent.
+When `~/.config/pcx86-kiosk/config.json` already exists, its device ID, broker, port, username, kiosk URL and optional camera URLs are shown as defaults. Press Enter to keep a value; the saved password is never displayed, and pressing Enter at its hidden prompt keeps it. Enter `!clear` at a prompt to clear an optional value (or the saved password). Before writing, the installer makes a timestamped config backup without overwriting earlier backups. Re-running with the same answers is intended to retain the configuration and replace the agent, but this behavior still needs a real-panel verification. Log out/in or reboot after installation to start the agent.
 
 When the Debian companion is ready, in Home Assistant configure the built-in MQTT integration to use this broker, add the `PCX86-kiosk` repository through HACS, then add **Panel MQTT** with the same device ID. This project does not install an MQTT broker.
 
@@ -79,7 +79,7 @@ The installer installs `/usr/local/sbin/pcx86-power` and one sudoers rule limite
 
 ## Upgrade and remove
 
-Re-running `python3 install.py` replaces the agent and writes a backup of the current JSON config to `~/.config/pcx86-kiosk/config.json.bak`; the installer does not automatically reuse that config, and a later run overwrites this single backup. For removal, delete the integration entry from Home Assistant and remove the user autostart file, `~/.local/lib/pcx86-kiosk`, `~/.config/pcx86-kiosk`, `/etc/sudoers.d/pcx86-kiosk`, and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM config only if it was installed by this project.
+Re-running `python3 install.py` replaces the agent and preserves the current JSON settings by offering them as defaults; it also writes a timestamped backup before saving. For removal, delete the integration entry from Home Assistant and remove the user autostart file, `~/.local/lib/pcx86-kiosk`, `~/.config/pcx86-kiosk`, `/etc/sudoers.d/pcx86-kiosk`, and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM config only if it was installed by this project.
 
 ## Diagnostics
 
