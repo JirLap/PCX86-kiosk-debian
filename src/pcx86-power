@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+  suspend)
+    found=0
+    for path in /sys/class/net/*/wireless; do
+      [ -d "$path" ] || continue
+      interface=${path%/wireless}
+      interface=${interface##*/}
+      found=1
+      /usr/sbin/iw dev "$interface" wowlan enable magic-packet
+    done
+    [ "$found" -eq 1 ] || { echo "No Wi-Fi interface found for WoWLAN" >&2; exit 1; }
+    /usr/bin/systemctl suspend
+    ;;
+  reboot)
+    /usr/bin/systemctl reboot
+    ;;
+  shutdown)
+    /usr/bin/systemctl poweroff
+    ;;
+  brightness)
+    value=${2:-}
+    case "$value" in
+      ''|*[!0-9]*) echo "Brightness must be an integer from 0 to 100" >&2; exit 2 ;;
+    esac
+    [ "$value" -le 100 ] || { echo "Brightness must be an integer from 0 to 100" >&2; exit 2; }
+    found=0
+    for path in /sys/class/backlight/*/brightness; do
+      [ -e "$path" ] || continue
+      found=1
+      maximum=$(cat "${path%/brightness}/max_brightness")
+      target=$((maximum * value / 100))
+      printf '%s\n' "$target" > "$path"
+      exit 0
+    done
+    [ "$found" -eq 1 ] || { echo "No backlight interface found" >&2; exit 1; }
+    ;;
+  *)
+    echo "Allowed actions: suspend, reboot, shutdown, brightness 0..100" >&2
+    exit 2
+    ;;
+esac
