@@ -1,4 +1,4 @@
-> ⚠️ **UPOZORNĚNÍ – PROJEKT JE VE VÝVOJI.** Zatím tento instalační skript nestahujte ani nespouštějte na běžném panelu. Instalátor a ovládání panelu nejsou dokončené ani ověřené na cílovém notebooku. Následující kroky jsou přípravný návod pro pozdější test po dokončení kontroly.
+> ⚠️ **UPOZORNĚNÍ – PROJEKT JE VE VÝVOJI.** Nestahujte ani neinstalujte pro běžné použití. Skript je určen pouze k řízenému testu správce na Panel-patro; jeho chování na cílovém notebooku ještě není ověřené. Před spuštěním zajistěte zálohu konfigurace a místní přístup k notebooku.
 
 # PCX86-kiosk-debian
 
@@ -20,9 +20,9 @@ Camera streaming and Wyoming voice satellite are optional follow-up services. Th
 
 For a standard 64-bit Intel/AMD laptop, use Debian's official [installation guide for amd64](https://www.debian.org/releases/stable/amd64/) and the official [Debian installer downloads](https://www.debian.org/releases/stable/debian-installer/). Select the XFCE desktop environment during installation. After the first boot, connect the laptop to the network and make sure the desktop user can run `sudo`.
 
-### 2. Prepare and run this project's installer (after this project is ready for testing)
+### 2. Run the installer on the panel
 
-The planned commands, run in a terminal as the normal XFCE desktop user, are:
+Log in to the XFCE desktop on the panel and open **Terminal** from the Applications menu. Run the following commands there as the normal desktop user (not as `root`):
 
 ```sh
 sudo apt-get update
@@ -32,7 +32,17 @@ cd PCX86-kiosk-debian
 python3 install.py
 ```
 
-Do **not** prepend `sudo` to `python3 install.py`; the installer asks for `sudo` only for the limited system-level steps. It interactively asks for MQTT broker, port, device ID, account and password, plus kiosk URL. The password prompt is hidden; configuration is written with mode `0600` under `~/.config/pcx86-kiosk/`.
+If you already cloned the repository, update it and run the installer from its directory instead:
+
+```sh
+cd ~/PCX86-kiosk-debian
+git pull
+python3 install.py
+```
+
+Do **not** prepend `sudo` to `python3 install.py`; the installer asks for `sudo` only for the limited system-level steps. On the first run on Panel-patro, enter the broker address, port, device ID (`patro`), MQTT username/password, and the panel's initial kiosk URL. The password prompt is hidden. At the end, answer whether to enable automatic XFCE login. The installer reports where it saved the configuration and any backup. Log out and back in, or reboot, to start the new agent.
+
+The MQTT configuration is stored with mode `0600` in `~/.config/pcx86-kiosk/config.json`. On later runs, press Enter to keep displayed values; the saved password is not shown and Enter at its hidden prompt preserves it. The script performs `apt` package installation and installs the restricted power helper/sudoers rule, so it will ask for the user's `sudo` password during those steps.
 
 ### Important when testing on an existing, partially configured panel
 
