@@ -1,4 +1,4 @@
-> ⚠️ **UPOZORNĚNÍ – PROJEKT JE VE VÝVOJI.** Nestahujte ani neinstalujte pro běžné použití. Skript je určen pouze k řízenému testu správce na Panel-patro; jeho chování na cílovém notebooku ještě není ověřené. Před spuštěním zajistěte zálohu konfigurace a místní přístup k notebooku.
+> ⚠️ **UPOZORNĚNÍ – PROJEKT JE VE VÝVOJI.** Neinstalujte pro běžné použití. Základní instalace, MQTT telemetrie a ovládání obrazovky byly ověřeny na Panel-patro (Debian 13). Kamera, hlasové ovládání a skutečné uspání/probuzení notebooku ještě nejsou ověřené. Projekt je určen pouze k řízenému dalšímu testování; před spuštěním zajistěte zálohu a místní přístup k notebooku.
 
 # PCX86-kiosk-debian
 
@@ -39,9 +39,9 @@ The MQTT configuration is stored with mode `0600` in `~/.config/pcx86-kiosk/conf
 
 ### Important when testing on an existing, partially configured panel
 
-The installer can be run on an existing Debian/XFCE panel, but it is still a development build and has not been verified on Panel-patro. It installs packages, replaces the PCX86 agent/configuration and autostart entry, and when it finds the older `panel-mqtt-agent.desktop`, disables it while keeping a timestamped backup. It also installs a restricted sudoers rule and optionally enables LightDM automatic login. The first run does not import settings from the older panel agent or its MQTT client configuration; enter the correct broker, account, password and kiosk URL manually (`patro` is the device ID for Panel-patro).
+The installer was run twice on the existing Panel-patro. It installed the missing packages, replaced the agent/configuration and autostart entry, and disabled the older `panel-mqtt-agent.desktop` while keeping a timestamped backup. The repeat run retained the saved values and password and made another non-overwriting configuration backup. It also installs a restricted sudoers rule and optionally enables LightDM automatic login. The first run does not import settings from the older panel agent or its MQTT client configuration; enter the correct broker, account, password and kiosk URL manually (`patro` is the device ID for Panel-patro). The currently running older agent stays active until the desktop session ends; log out and back in, or reboot, before relying on the new autostart entry.
 
-When `~/.config/pcx86-kiosk/config.json` already exists, its device ID, broker, port, username, kiosk URL and optional camera URLs are shown as defaults. Press Enter to keep a value; the saved password is never displayed, and pressing Enter at its hidden prompt keeps it. Enter `!clear` at a prompt to clear an optional value (or the saved password). Before writing, the installer makes a timestamped config backup without overwriting earlier backups. Re-running with the same answers is intended to retain the configuration and replace the agent, but this behavior still needs a real-panel verification. Log out/in or reboot after installation to start the agent.
+When `~/.config/pcx86-kiosk/config.json` already exists, its device ID, broker, port, username, kiosk URL and optional camera URLs are shown as defaults. Press Enter to keep a value; the saved password is never displayed, and pressing Enter at its hidden prompt keeps it. Enter `!clear` at a prompt to clear an optional value (or the saved password). Before writing, the installer makes a timestamped config backup without overwriting earlier backups. Re-running with the same answers was verified on Panel-patro: it retained the saved values/password and replaced the agent files. Log out/in or reboot after installation to activate the new desktop autostart entry.
 
 When the Debian companion is ready, in Home Assistant configure the built-in MQTT integration to use this broker, add the `PCX86-kiosk` repository through HACS, then add **Panel MQTT** with the same device ID. This project does not install an MQTT broker.
 
@@ -89,5 +89,5 @@ Re-running `python3 install.py` replaces the agent and preserves the current JSO
 - MQTT status: `panel/<device_id>/status`.
 - User config: `~/.config/pcx86-kiosk/config.json` (contains credentials; do not post it publicly).
 - Run agent output: log out/in, or launch its `Exec` command from `~/.config/autostart/pcx86-kiosk-agent.desktop` in a terminal for diagnostics.
-- Validate WoWLAN locally with `iw dev <wifi-interface> wowlan show` and test after arming magic-packet wake. Hardware support is not guaranteed.
+- Check the Wi-Fi PHY with `/usr/sbin/iw dev <wifi-interface> info` (`wiphy 0` corresponds to `phy0`), then read WoWLAN state with `/usr/sbin/iw phy phy0 wowlan show`. The Panel-patro adapter advertises magic-packet support, but full-system suspend and remote wake have not been tested.
 - APT update count reflects the local package index. Update it using normal Debian maintenance.
