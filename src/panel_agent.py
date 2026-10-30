@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -23,6 +24,8 @@ import psutil
 import paho.mqtt.client as mqtt
 
 LOGGER = logging.getLogger("pcx86_kiosk")
+TOPIC_ROOT = "pcx86_kiosk"
+DISCOVERY_ROOT = f"{TOPIC_ROOT}/discovery"
 COMMANDS = {
     "wake", "sleep", "screen_on", "screen_off", "status",
     "chromium_start", "chromium_stop", "chromium_restart",
@@ -38,6 +41,15 @@ def run(command: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str
     return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
 
 
+def _read_first_line(path: Path) -> str | None:
+    """Read one optional hardware identifier without failing on missing DMI data."""
+    try:
+        value = path.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    return value or None
+
+
 class PanelAgent:
     """Per-user agent that runs inside the active XFCE session."""
 
@@ -45,9 +57,10 @@ class PanelAgent:
         self.config_path = config_path
         self.config = json.loads(config_path.read_text(encoding="utf-8"))
         self.device_id = self.config["device_id"]
-        self.root = f"panel/{self.device_id}"
+        self.root = f"{TOPIC_ROOT}/{self.device_id}"
         self.status_topic = f"{self.root}/status"
         self.command_topic = f"{self.root}/command"
+        self.discovery_topic = f"{DISCOVERY_ROOT}/{self.device_id}"
         if hasattr(mqtt, "CallbackAPIVersion"):
             self.client = mqtt.Client(
                 mqtt.CallbackAPIVersion.VERSION1,
@@ -79,6 +92,7 @@ class PanelAgent:
             return
         client.subscribe(self.command_topic, qos=1)
         self.publish_status()
+        self.publish_discovery()
 
     def on_disconnect(self, client, userdata, *args):
         if not self._stop.is_set():
@@ -94,6 +108,23 @@ class PanelAgent:
             updated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
         self.client.publish(self.status_topic, json.dumps(status), qos=1, retain=True)
+
+    def publish_discovery(self):
+        """Publish retained metadata for Home Assistant's MQTT config-flow discovery."""
+        metadata = self.collect_device_metadata()
+        announcement = {
+            "device_id": self.device_id,
+            "name": metadata.get("hostname", f"PCX86 kiosk {self.device_id}"),
+            "status_topic": self.status_topic,
+            "command_topic": self.command_topic,
+            **metadata,
+        }
+        self.client.publish(
+            self.discovery_topic,
+            json.dumps(announcement),
+            qos=1,
+            retain=True,
+        )
 
     def collect_status(self) -> dict:
         memory = psutil.virtual_memory()
@@ -113,6 +144,7 @@ class PanelAgent:
         ip_address, interface = self.network_route()
         if ip_address:
             status["ip_address"] = ip_address
+        status.update(self.collect_device_metadata(ip_address, interface))
         wifi = self.wifi_signal(interface) if interface else None
         if wifi is not None:
             status["wifi_signal_dbm"] = wifi
@@ -145,6 +177,55 @@ class PanelAgent:
             status["camera_stream_url"] = camera["stream_url"]
         status["camera"] = self.camera_state()
         return status
+
+    def collect_device_metadata(
+        self, ip_address: str | None = None, interface: str | None = None
+    ) -> dict:
+        """Return hardware and operating-system identifiers available on Linux."""
+        if ip_address is None or interface is None:
+            ip_address, interface = self.network_route()
+
+        try:
+            os_release = platform.freedesktop_os_release()
+        except (AttributeError, OSError):
+            os_release = {}
+
+        metadata = {
+            "hostname": socket.gethostname(),
+            "kernel_version": platform.release(),
+            "architecture": platform.machine(),
+            "os_name": os_release.get("NAME", "Linux"),
+            "os_version": os_release.get("PRETTY_NAME", ""),
+        }
+        manufacturer = _read_first_line(Path("/sys/class/dmi/id/sys_vendor"))
+        model = _read_first_line(Path("/sys/class/dmi/id/product_name"))
+        if manufacturer:
+            metadata["manufacturer"] = manufacturer
+        if model:
+            metadata["model"] = model
+        if ip_address:
+            metadata["ip_address"] = ip_address
+        if interface:
+            metadata["network_interface"] = interface
+            for address in psutil.net_if_addrs().get(interface, []):
+                if address.family == getattr(socket, "AF_PACKET", object()):
+                    mac_address = address.address.lower()
+                    if mac_address and mac_address != "00:00:00:00:00:00":
+                        metadata["mac_address"] = mac_address
+                if address.family == socket.AF_INET and address.address == ip_address:
+                    if address.broadcast:
+                        metadata["broadcast_address"] = address.broadcast
+            ssid = self.wifi_ssid(interface)
+            if ssid:
+                metadata["wifi_ssid"] = ssid
+        return metadata
+
+    @staticmethod
+    def wifi_ssid(interface: str) -> str | None:
+        """Return the SSID for a connected Wi-Fi interface when available."""
+        result = run(["/usr/sbin/iw", "dev", interface, "link"])
+        match = re.search(r"^\s*SSID:\s*(.+)$", result.stdout, re.MULTILINE)
+        return match.group(1).strip() if result.returncode == 0 and match else None
 
     def network_route(self) -> tuple[str | None, str | None]:
         try:

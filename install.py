@@ -81,10 +81,12 @@ def main():
     else:
         print("No PCX86 panel configuration found; this is a first-time setup.")
     print("PCX86-kiosk Debian setup. MQTT passwords are entered locally and never displayed.")
-    device_id = ask("MQTT device ID", str(existing.get("device_id", "patro"))).lower()
+    device_id = ask("MQTT device ID", str(existing.get("device_id", "kiosk"))).lower()
     if not re.fullmatch(r"[a-z0-9_-]+", device_id):
         raise SystemExit("Use lowercase letters, digits, hyphens, or underscores for the device ID.")
-    mqtt_host = ask("MQTT broker address", str(existing.get("mqtt_host", "192.168.5.212")))
+    mqtt_host = ask("MQTT broker address", str(existing.get("mqtt_host", "")))
+    if not mqtt_host:
+        raise SystemExit("Enter the host name or IP address of your existing MQTT broker.")
     try:
         mqtt_port = int(ask("MQTT broker port", str(existing.get("mqtt_port", 1883))))
     except ValueError:

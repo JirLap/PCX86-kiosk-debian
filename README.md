@@ -1,93 +1,59 @@
-> ⚠️ **UPOZORNĚNÍ – PROJEKT JE VE VÝVOJI.** Neinstalujte pro běžné použití. Základní instalace, MQTT telemetrie a ovládání obrazovky byly ověřeny na Panel-patro (Debian 13). Kamera, hlasové ovládání a skutečné uspání/probuzení notebooku ještě nejsou ověřené. Projekt je určen pouze k řízenému dalšímu testování; před spuštěním zajistěte zálohu a místní přístup k notebooku.
+> ⚠️ **IN DEVELOPMENT — DO NOT INSTALL YET.** The installer and kiosk agent are still being developed and have not been validated as a complete release. These instructions are for development review only; features and configuration may change.
 
 # PCX86-kiosk-debian
 
-Debian-side companion for the [PCX86-kiosk Home Assistant integration](https://github.com/JirLap/PCX86-kiosk). It installs a per-user MQTT agent for an XFCE/Chromium kiosk. It does not modify or install the separate `HAOS-kiosk` project.
+Debian-side companion for the [PCX86-kiosk Home Assistant integration](https://github.com/JirLap/PCX86-kiosk). It installs a per-user MQTT agent for a Debian XFCE/Chromium kiosk. It does not install or modify the separate `HAOS-kiosk` Frigate display add-on.
 
-## Current target and scope
+## Requirements
 
-- Debian 13, XFCE, Chromium, systemd user session.
-- MQTT telemetry and a fixed allow-list of controls.
-- CPU, RAM, disk, uptime, APT upgrade count, available temperature, battery, IP/Wi-Fi signal, display, browser and audio state when Linux exposes them.
-- Kiosk URL, refresh, browser start/stop/restart, speaker volume/mute, microphone mute, display brightness, reboot and shutdown.
-- Screen blank/restore and whole-system suspend are separate actions.
+- A 64-bit Debian laptop with an XFCE desktop session.
+- A desktop user with `sudo` access.
+- An MQTT broker that Home Assistant can also reach.
+- A Home Assistant installation with its built-in MQTT integration configured and the [PCX86-kiosk integration](https://github.com/JirLap/PCX86-kiosk) installed through HACS.
 
-Camera streaming and Wyoming voice satellite are optional follow-up services. Their capture device names and formats are hardware-specific and must be identified on each laptop before enabling. The installer does not claim a working camera or voice service until those devices and streams have been configured and verified.
+## Install Debian and the kiosk agent
 
-## Install
+For the Debian base system, use the official [Debian installation guide for amd64](https://www.debian.org/releases/stable/amd64/) and [installer downloads](https://www.debian.org/releases/stable/debian-installer/). Select XFCE during installation, connect the laptop to the network, and make sure the desktop user can run `sudo`.
 
-### 1. Install the Debian base system
-
-For a standard 64-bit Intel/AMD laptop, use Debian's official [installation guide for amd64](https://www.debian.org/releases/stable/amd64/) and the official [Debian installer downloads](https://www.debian.org/releases/stable/debian-installer/). Select the XFCE desktop environment during installation. After the first boot, connect the laptop to the network and make sure the desktop user can run `sudo`.
-
-### 2. Run the installer on the panel
-
-Log in to the XFCE desktop on the panel and open **Terminal** from the Applications menu. Download the small shell launcher and run it as the normal desktop user (not as `root`):
+From the XFCE desktop, open **Terminal** and download and run the shell installer as the normal desktop user:
 
 ```sh
 wget -O ~/pcx86-kiosk-install.sh https://raw.githubusercontent.com/JirLap/PCX86-kiosk-debian/main/install.sh
 sh ~/pcx86-kiosk-install.sh
 ```
 
-The shell launcher downloads the full source archive (including the Python installer and its required `src/` files) to a temporary folder, then starts the interactive installer. The temporary download is removed when the installer exits. To review the launcher first, open `~/pcx86-kiosk-install.sh` in a text editor before running it. Do not pipe it directly into `sh`: the installer needs the terminal input for its setup questions.
+Do not run the installer as `root` or prepend `sudo`. It requests `sudo` only for the limited system-level installation steps. The shell launcher downloads the source archive to a temporary directory and starts the interactive Python installer. The temporary download is removed when the installer exits. To review the launcher first, open `~/pcx86-kiosk-install.sh` in a text editor. Do not pipe it directly into `sh`: the installer needs terminal input for its setup questions.
 
-When a newer version is available, run the same `wget` command again to replace the launcher, then run `sh ~/pcx86-kiosk-install.sh`. The persistent configuration is under `~/.config/pcx86-kiosk/`, outside the temporary source folder.
+The first run asks for a unique device ID, MQTT broker host and port, MQTT username and password, and the initial kiosk URL. The password is entered without echoing to the terminal. Optional camera snapshot and RTSP endpoint URLs can also be entered. The installer installs required Debian packages, the agent and a restricted power helper, then creates an XFCE autostart entry. Log out and back in, or reboot, to start the agent.
 
-Do **not** prepend `sudo` to `python3 install.py`; the installer asks for `sudo` only for the limited system-level steps. On the first run on Panel-patro, enter the broker address, port, device ID (`patro`), MQTT username/password, and the panel's initial kiosk URL. The password prompt is hidden. At the end, answer whether to enable automatic XFCE login. The installer reports where it saved the configuration and any backup. Log out and back in, or reboot, to start the new agent.
+The agent configuration is stored in `~/.config/pcx86-kiosk/config.json` with private file permissions. On later runs, existing settings are offered as defaults; press Enter to keep them. The saved password is never displayed, and Enter at its hidden prompt preserves it. Enter `!clear` to clear an optional value. A timestamped backup is created before the configuration is replaced. Re-running the installer is intended to update the agent while preserving existing settings.
 
-The MQTT configuration is stored with mode `0600` in `~/.config/pcx86-kiosk/config.json`. On later runs, press Enter to keep displayed values; the saved password is not shown and Enter at its hidden prompt preserves it. The script performs `apt` package installation and installs the restricted power helper/sudoers rule, so it will ask for the user's `sudo` password during those steps.
+To update the installer, run the same `wget` command again, then run `sh ~/pcx86-kiosk-install.sh`.
 
-### Important when testing on an existing, partially configured panel
+## Home Assistant setup and automatic discovery
 
-The installer was run twice on the existing Panel-patro. It installed the missing packages, replaced the agent/configuration and autostart entry, and disabled the older `panel-mqtt-agent.desktop` while keeping a timestamped backup. The repeat run retained the saved values and password and made another non-overwriting configuration backup. It also installs a restricted sudoers rule and optionally enables LightDM automatic login. The first run does not import settings from the older panel agent or its MQTT client configuration; enter the correct broker, account, password and kiosk URL manually (`patro` is the device ID for Panel-patro). The currently running older agent stays active until the desktop session ends; log out and back in, or reboot, before relying on the new autostart entry.
+Install the PCX86-kiosk integration from HACS and restart Home Assistant. Configure the panel with the same MQTT broker that Home Assistant uses. When the agent connects, it publishes a retained discovery announcement; Home Assistant then offers the panel for confirmation. The dialog asks only for a device name and an optional area. Its device ID, MAC address, IP address, and MQTT topics are read from the announcement.
 
-When `~/.config/pcx86-kiosk/config.json` already exists, its device ID, broker, port, username, kiosk URL and optional camera URLs are shown as defaults. Press Enter to keep a value; the saved password is never displayed, and pressing Enter at its hidden prompt keeps it. Enter `!clear` at a prompt to clear an optional value (or the saved password). Before writing, the installer makes a timestamped config backup without overwriting earlier backups. Re-running with the same answers was verified on Panel-patro: it retained the saved values/password and replaced the agent files. Log out/in or reboot after installation to activate the new desktop autostart entry.
+This integration uses Home Assistant's custom-integration MQTT discovery hook. It does not use the MQTT integration's `homeassistant` discovery prefix, and that prefix does not need to be changed. The broker itself is not installed by this project.
 
-When the Debian companion is ready, in Home Assistant configure the built-in MQTT integration to use this broker, add the `PCX86-kiosk` repository through HACS, then add **Panel MQTT** with the same device ID. This project does not install an MQTT broker.
+## MQTT topics and information
 
-The agent preserves the `panel/<device_id>/command` and `panel/<device_id>/status` topic shape. Do not use the same device ID on two running laptops.
+For device ID `kiosk`, the agent publishes a retained announcement on `pcx86_kiosk/discovery/kiosk`, retained status on `pcx86_kiosk/kiosk/status`, and listens for commands on `pcx86_kiosk/kiosk/command`. It republishes the announcement after connecting to the broker. Do not use the same device ID for multiple panels.
 
-## MQTT protocol
+Status includes available CPU, memory, disk, uptime, update count, temperature, battery, display, Chromium, camera, audio and microphone information. Network and device information includes hostname, IP address, MAC address, network interface, broadcast address, Wi-Fi network and signal, operating system, kernel, architecture and hardware manufacturer/model when Linux provides them. Unavailable hardware details are omitted.
 
-The panel subscribes to `panel/<device_id>/command`. It publishes retained JSON to `panel/<device_id>/status` every 30 seconds and when a command arrives. MQTT Last Will publishes `{"availability":"offline"}` after an unexpected disconnect.
+The agent accepts only fixed, allow-listed commands, including status refresh, kiosk URL change and page refresh, browser start/stop/restart, display on/off, brightness and volume changes, mute controls, camera service start/stop, suspend, reboot and shutdown. It ignores retained command messages. MQTT credentials stay in the panel's private configuration; restrict broker ACLs to each device's discovery, status and command topics.
 
-Commands are plain text. Fixed actions include:
+## Screen off, suspend and wake
 
-`status`, `wake`, `sleep`, `screen_on`, `screen_off`, `chromium_start`, `chromium_stop`, `chromium_restart`, `kiosk_start`, `kiosk_stop`, `kiosk_restart`, `kiosk_refresh`, `suspend`, `reboot`, `shutdown`, `camera_start`, `camera_stop`, `mic_mute`, `mic_unmute`, `audio_mute`, `audio_unmute`, `volume_set:0..150`, `mic_volume_set:0..150`, `brightness_set:0..100`, and `set_url:http(s)://...`.
+`sleep` and `wake` only turn the display off and on. `suspend` requests whole-system suspend and is separate. The agent refuses suspend if it cannot arm Wi-Fi Wake-on-LAN magic-packet support. Successful wake also depends on the laptop adapter, driver, firmware, access point and router. While the laptop is suspended it is disconnected from MQTT; Home Assistant must send a Wake-on-LAN packet to the configured Wi-Fi MAC address and broadcast network. Verify this path before relying on suspend.
 
-`wake` and `sleep` only turn the display on/off. `suspend` requests whole-system suspend and first attempts `iw ... wowlan enable magic-packet`. If Wi-Fi WoWLAN is not supported, suspend is intentionally refused instead of silently making remote wake impossible. The Wi-Fi adapter, kernel driver, firmware and access point all need to support magic-packet wake.
+## Camera and Voice Assist
 
-After suspend, MQTT is disconnected. Home Assistant's **Wake notebook** button sends a standard UDP/9 Wake-on-LAN packet using the configured Wi-Fi MAC and broadcast address. If HA is on another subnet, the router must permit directed broadcasts to the panel's LAN; many routers block these. For example, a laptop on `192.168.0.0/24` may require `192.168.0.255`, but only if the router forwards it. Configure the MAC and broadcast address in the HA integration. Test wake reliability before using suspend unattended.
+Camera use is optional and hardware-specific. The agent can report configured snapshot and RTSP URLs and control the `pcx86-camera.service`; it does not infer the camera device, audio capture source, streaming server, codecs or authentication. Configure and verify an HTTP JPEG snapshot and an RTSP stream separately before enabling the camera in Home Assistant. Keep camera endpoints on a trusted network or protect them with authentication.
 
-## Camera and microphone streaming
+Voice Assist is separate from MQTT. Configure a Wyoming satellite service for the laptop's microphone and speaker, then add it through Home Assistant's Wyoming integration. See [`docs/voice-assist.md`](docs/voice-assist.md) for the integration boundary and setup checklist.
 
-The agent reports optional `camera_snapshot_url` and `camera_stream_url` endpoints from its config, but the camera backend service still needs to be installed/configured for the actual laptop. The installer currently gathers optional endpoint URLs; it does not infer `/dev/video*`, ALSA device identifiers, codecs, RTSP server address or audio track configuration. Once the HTTP snapshot endpoint works, Home Assistant's standard `camera.snapshot` action can save an image; there is no separate MQTT snapshot command.
+## Remove
 
-Before enabling camera actions, identify:
-
-1. The camera device using `v4l2-ctl --list-devices` and supported modes.
-2. The intended microphone capture source using `arecord -L` or `pactl list sources short`.
-3. A supported streaming backend (for example, FFmpeg feeding a local RTSP server) with an HTTP JPEG snapshot URL and RTSP URL reachable by Home Assistant.
-4. A per-user `pcx86-camera.service` and snapshot service. The current agent starts/stops these service names; do not add camera entities with endpoint URLs until the service responds and publishes a valid snapshot and stream with audio as required.
-
-Do not expose an unauthenticated camera stream to the public internet. Restrict HTTP/RTSP ports to the local network or use authenticated/reverse-proxied access.
-
-## Voice Assist
-
-Voice Assist is not MQTT. Install/configure a Wyoming satellite service against the specific laptop microphone and speaker devices, then add it to Home Assistant using the built-in Wyoming integration. Device identifiers and audio formats must be checked locally. See `docs/voice-assist.md` for the integration boundary and commissioning checklist.
-
-## Power and permissions
-
-The installer installs `/usr/local/sbin/pcx86-power` and one sudoers rule limited to that helper with only `suspend`, `reboot`, `shutdown`, and validated `brightness 0..100` actions. The helper is root-owned; the MQTT agent does not execute shell commands from received messages. MQTT credentials remain in the user's private configuration file. Restrict broker ACLs to each device's own topic pair.
-
-## Upgrade and remove
-
-Re-running `python3 install.py` replaces the agent and preserves the current JSON settings by offering them as defaults; it also writes a timestamped backup before saving. For removal, delete the integration entry from Home Assistant and remove the user autostart file, `~/.local/lib/pcx86-kiosk`, `~/.config/pcx86-kiosk`, `/etc/sudoers.d/pcx86-kiosk`, and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM config only if it was installed by this project.
-
-## Diagnostics
-
-- MQTT status: `panel/<device_id>/status`.
-- User config: `~/.config/pcx86-kiosk/config.json` (contains credentials; do not post it publicly).
-- Run agent output: log out/in, or launch its `Exec` command from `~/.config/autostart/pcx86-kiosk-agent.desktop` in a terminal for diagnostics.
-- Check the Wi-Fi PHY with `/usr/sbin/iw dev <wifi-interface> info` (`wiphy 0` corresponds to `phy0`), then read WoWLAN state with `/usr/sbin/iw phy phy0 wowlan show`. The Panel-patro adapter advertises magic-packet support, but full-system suspend and remote wake have not been tested.
-- APT update count reflects the local package index. Update it using normal Debian maintenance.
+Remove the PCX86-kiosk entry from Home Assistant. On the Debian panel, remove the `pcx86-kiosk-agent.desktop` autostart entry, `~/.local/lib/pcx86-kiosk/`, and `~/.config/pcx86-kiosk/`. If this project installed them, remove `/etc/sudoers.d/pcx86-kiosk` and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM setting only if it was enabled by this installer.

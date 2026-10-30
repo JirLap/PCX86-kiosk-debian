@@ -2,7 +2,7 @@
 
 The Debian kiosk agent transports device status and controls over MQTT. Home Assistant voice uses Wyoming and runs as an independent service.
 
-Before installation, identify the exact microphone and speaker devices on the target laptop. Do not copy device identifiers between Panel-patro and Panel-přízemí without checking them.
+Before installation, identify the exact microphone and speaker devices on each target laptop. Device identifiers and audio formats can differ between systems and must be checked locally.
 
 1. Confirm the microphone captures speech and the speaker plays a test sound in the logged-in XFCE session.
 2. Choose and install a Wyoming-compatible satellite implementation for Debian, pin its version, and run it under a dedicated unprivileged service account where practical.
