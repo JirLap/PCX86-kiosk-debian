@@ -175,6 +175,13 @@ def main():
         "Optional laptop-camera RTSP URL (enter !clear to remove)",
         str(camera_existing.get("stream_url") or ""),
     )
+    legacy_browser = Path.home() / ".config/autostart/chromium.desktop"
+    legacy_basic = legacy_browser.exists() and "--password-store=basic" in legacy_browser.read_text()
+    default_store = existing.get("browser_password_store", "basic" if legacy_basic else "auto")
+    print("Chromium 'auto' uses the desktop keyring; 'basic' avoids its unlock dialog but does not provide keyring encryption. Use basic only for a dedicated kiosk profile.")
+    password_store = ask("Chromium password store (auto/basic)", default_store).lower()
+    if password_store not in ("auto", "basic"):
+        raise SystemExit("Choose auto or basic for Chromium password storage.")
 
     print("Installing Debian packages needed for the agent, kiosk, and hardware inspection.")
     subprocess.run(["sudo", "apt-get", "update"], check=True)
@@ -183,7 +190,7 @@ def main():
             "sudo", "apt-get", "install", "-y",
             "chromium", "python3-paho-mqtt", "python3-psutil", "procps",
             "x11-xserver-utils", "xdotool", "pulseaudio-utils", "iw",
-            "ffmpeg", "v4l-utils",
+            "ffmpeg", "v4l-utils", "xprintidle",
         ],
         check=True,
     )
@@ -214,6 +221,9 @@ def main():
         "mqtt_password": mqtt_password,
         "kiosk_url": kiosk_url,
         "browser": existing.get("browser", "/usr/bin/chromium"),
+        "browser_password_store": password_store,
+        "screensaver_enabled": existing.get("screensaver_enabled", False),
+        "screensaver_timeout": existing.get("screensaver_timeout", 10),
         "status_interval": existing.get("status_interval", 30),
         "update_check_interval": existing.get("update_check_interval", 3600),
     })
@@ -261,6 +271,11 @@ def main():
         encoding="utf-8",
     )
     os.chmod(agent_entry, 0o644)
+    if legacy_browser.exists() and "--kiosk" in legacy_browser.read_text():
+        legacy_backup = unique_backup_path(legacy_browser)
+        shutil.copy2(legacy_browser, legacy_backup)
+        legacy_browser.unlink()
+        print(f"Disabled the separate Chromium kiosk launcher; kept its backup at {legacy_backup}.")
 
     print("Installing the restricted root helper for brightness, reboot, and shutdown.")
     install_file_with_sudo(POWER_HELPER, "/usr/local/sbin/pcx86-power", "0755")

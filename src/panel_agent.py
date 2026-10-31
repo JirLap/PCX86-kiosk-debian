@@ -33,6 +33,7 @@ COMMANDS = {
     "camera_start", "camera_stop",
     "mic_mute", "mic_unmute", "audio_mute", "audio_unmute",
     "suspend", "reboot", "shutdown",
+    "screensaver_on", "screensaver_off",
 }
 
 
@@ -86,6 +87,9 @@ class PanelAgent:
         self._update_check_running = False
         self._update_check_lock = threading.Lock()
         self._display_sleep = self.config.get("display_sleep")
+        self._last_monitor = None
+        self._last_idle_ms = None
+        self._desktop_display_configured = False
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     def on_connect(self, client, userdata, flags, reason_code, properties=None):
@@ -163,6 +167,8 @@ class PanelAgent:
             "kiosk_url": self.config["kiosk_url"],
             "chromium": "running" if self.chromium_running() else "stopped",
             "power_mode": "display_sleep" if self._display_sleep else "awake",
+            "screensaver_enabled": bool(self.config.get("screensaver_enabled", False)),
+            "screensaver_timeout": int(self.config.get("screensaver_timeout", 10)),
         }
         cpu_temp = self.cpu_temperature()
         if cpu_temp is not None:
@@ -177,6 +183,7 @@ class PanelAgent:
         monitor = "off" if self._display_sleep else self.monitor_state()
         if monitor is not None:
             status["monitor"] = monitor
+        status["screensaver_active"] = bool(self._display_sleep and self._display_sleep.get("reason") == "screensaver") or (not self._display_sleep and monitor == "off")
         volume = self.audio_volume()
         if volume is not None:
             status["system_volume"] = volume
@@ -292,9 +299,11 @@ class PanelAgent:
         if not os.environ.get("DISPLAY"):
             return None
         result = run(["/usr/bin/xset", "-q"])
-        match = re.search(r"Monitor is (On|Off)", result.stdout)
+        match = re.search(r"Monitor is (On|Off|Standby|Suspend)", result.stdout)
         if match:
             return "on" if match.group(1) == "On" else "off"
+        if "DPMS is Disabled" in result.stdout:
+            return "on"  # Disabling DPMS powers the display on; core blanking is disabled.
         return None
 
     @staticmethod
@@ -434,6 +443,16 @@ class PanelAgent:
         if command.startswith("brightness_set:"):
             self.set_brightness(int(command.partition(":")[2]))
             return
+        if command.startswith("screensaver_timeout_set:"):
+            value = int(command.partition(":")[2])
+            if not 1 <= value <= 240:
+                raise ValueError("screensaver timeout must be 1 to 240 minutes")
+            self.config["screensaver_timeout"] = value
+            self.write_config()
+            self.apply_screensaver()
+            if not self._display_sleep:
+                self.checked(["/usr/bin/xset", "s", "reset"])
+            return
         if command not in COMMANDS:
             raise ValueError("unsupported command")
 
@@ -442,6 +461,18 @@ class PanelAgent:
         elif command in ("sleep", "screen_off", "suspend"):
             # Legacy 'suspend' commands also use the remotely recoverable mode.
             self.sleep_display()
+        elif command in ("screensaver_on", "screensaver_off"):
+            if command == "screensaver_on" and not shutil.which("xprintidle"):
+                raise RuntimeError("Install xprintidle to enable the screensaver")
+            self.config["screensaver_enabled"] = command == "screensaver_on"
+            self.write_config()
+            if command == "screensaver_off" and self._display_sleep and self._display_sleep.get("reason") == "screensaver":
+                self.wake_display()
+            self.apply_screensaver()
+            if not self._display_sleep:
+                self.checked(["/usr/bin/xset", "s", "reset"])
+                if command == "screensaver_off":
+                    self.checked(["/usr/bin/xset", "dpms", "force", "on"])
         elif command in ("chromium_start", "kiosk_start"):
             self.start_kiosk()
         elif command in ("chromium_stop", "kiosk_stop"):
@@ -498,27 +529,81 @@ class PanelAgent:
             detail = process.stderr.read().strip() if process.stderr else ""
             raise RuntimeError(detail or f"power helper exited {process.returncode}")
 
-    def sleep_display(self):
+    def apply_screensaver(self):
+        """Own idle handling; native timers can be inhibited by kiosk video."""
+        self.configure_desktop_display()
+        self.checked(["/usr/bin/xset", "s", "off"])
+        self.checked(["/usr/bin/xset", "+dpms"])
+        self.checked(["/usr/bin/xset", "dpms", "0", "0", "0"])
+
+    def configure_desktop_display(self):
+        """Keep XFCE from independently blanking or disabling manual DPMS."""
+        if getattr(self, "_desktop_display_configured", False):
+            return
+        xfconf = shutil.which("xfconf-query")
+        if xfconf:
+            for key, kind, value in (
+                ("dpms-enabled", "bool", "true"),
+                ("dpms-on-ac-sleep", "uint", "0"),
+                ("dpms-on-ac-off", "uint", "0"),
+                ("dpms-on-battery-sleep", "uint", "0"),
+                ("dpms-on-battery-off", "uint", "0"),
+                ("blank-on-ac", "int", "0"),
+                ("blank-on-battery", "int", "0"),
+            ):
+                prop = "/xfce4-power-manager/" + key
+                current = run([xfconf, "-c", "xfce4-power-manager", "-p", prop])
+                if current.returncode == 0 and current.stdout.strip() == value:
+                    continue
+                args = [xfconf, "-c", "xfce4-power-manager", "-p", prop, "-s", value]
+                if current.returncode != 0:
+                    args += ["--create", "--type", kind]
+                self.checked(args)
+        self._desktop_display_configured = True
+
+    def check_screensaver(self):
+        """Track actual X11 input idle time; local input cancels automatic sleep."""
+        automatic_sleep = self._display_sleep and self._display_sleep.get("reason") == "screensaver"
+        if (self._display_sleep and not automatic_sleep) or (not self.config.get("screensaver_enabled", False) and not automatic_sleep):
+            return
+        tool = shutil.which("xprintidle")
+        if not tool:
+            return
+        result = run([tool])
+        if result.returncode != 0 or not result.stdout.strip().isdigit():
+            return
+        idle_ms = int(result.stdout.strip())
+        previous = self._last_idle_ms
+        self._last_idle_ms = idle_ms
+        if self._display_sleep:
+            if self._display_sleep.get("reason") == "screensaver" and previous is not None and idle_ms < previous:
+                self.wake_display()
+            return
+        minutes = max(1, min(240, int(self.config.get("screensaver_timeout", 10))))
+        if self.config.get("screensaver_enabled", False) and idle_ms >= minutes * 60_000:
+            self.sleep_display(reason="screensaver")
+
+    def sleep_display(self, reason: str = "manual"):
         """Stop rendering and turn off the display while retaining SSH/MQTT/audio."""
         if not self._display_sleep:
             self._display_sleep = {
                 "brightness": self.brightness(),
                 "restore_kiosk": self.chromium_running(),
+                "reason": reason,
             }
             self.config["display_sleep"] = self._display_sleep
             self.write_config()
-        self.checked(["/usr/bin/xset", "+dpms"])
-        self.checked(["/usr/bin/xset", "dpms", "0", "0", "0"])
+        self.stop_kiosk()
+        self.apply_screensaver()
         self.checked(["/usr/bin/xset", "dpms", "force", "off"])
         if self._display_sleep.get("brightness") is not None:
             self.set_brightness(0)
-        self.stop_kiosk()
 
     def wake_display(self):
         """Restore the saved brightness and only the browser that was running."""
         saved = self._display_sleep or {}
-        self.checked(["/usr/bin/xset", "+dpms"])
-        self.checked(["/usr/bin/xset", "dpms", "0", "0", "0"])
+        self.apply_screensaver()
+        self.checked(["/usr/bin/xset", "s", "reset"])
         self.checked(["/usr/bin/xset", "dpms", "force", "on"])
         if saved.get("brightness") is not None:
             self.set_brightness(saved["brightness"])
@@ -553,9 +638,21 @@ class PanelAgent:
         if self.chromium_running():
             return
         browser = self.config.get("browser", "/usr/bin/chromium")
+        store = self.config.get("browser_password_store")
+        if store is None:
+            # Preserve an existing kiosk launcher's explicit storage choice.
+            try:
+                legacy = (Path.home() / ".config/autostart/chromium.desktop").read_text()
+            except OSError:
+                legacy = ""
+            store = "basic" if "--password-store=basic" in legacy else "auto"
+        if store not in ("auto", "basic"):
+            raise ValueError("browser_password_store must be auto or basic")
+        password_store_args = ["--password-store=basic"] if store == "basic" else []
         subprocess.Popen(
             [
                 browser,
+                *password_store_args,
                 "--kiosk",
                 "--app=" + self.config["kiosk_url"],
                 "--no-first-run",
@@ -600,16 +697,30 @@ class PanelAgent:
         if self._display_sleep:
             self.sleep_display()
         else:
+            self.apply_screensaver()
             self.start_kiosk()
         self.client.connect_async(
             self.config["mqtt_host"], int(self.config.get("mqtt_port", 1883)), keepalive=45
         )
         worker = threading.Thread(target=self.network_loop, name="pcx86-mqtt", daemon=True)
         worker.start()
+        next_status = 0.0
         try:
-            while not self._stop.wait(int(self.config.get("status_interval", 30))):
-                if self.client.is_connected():
+            while not self._stop.wait(2):
+                now = time.monotonic()
+                try:
+                    self.check_screensaver()
+                except Exception:
+                    LOGGER.exception("Cannot update screensaver; will retry")
+                try:
+                    monitor = self.monitor_state()
+                except (OSError, subprocess.TimeoutExpired):
+                    monitor = self._last_monitor
+                changed = monitor != self._last_monitor
+                self._last_monitor = monitor
+                if self.client.is_connected() and (changed or now >= next_status):
                     self.publish_status_safely()
+                    next_status = now + max(2, int(self.config.get("status_interval", 30)))
         finally:
             self._stop.set()
             if self.client.is_connected():
