@@ -30,6 +30,24 @@ The agent configuration is stored in `~/.config/pcx86-kiosk/config.json` with pr
 
 To update the installer, run the same `wget` command again, then run `sh ~/pcx86-kiosk-install.sh`.
 
+## Wi-Fi power saving
+
+During installation and repeat runs, the installer detects each active NetworkManager Wi-Fi profile and disables its power saving using `802-11-wireless.powersave=2`. It identifies profiles by UUID, so it works with arbitrary network names. This matches NetworkManager's [documented disable value](https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html).
+
+The profile setting persists across restarts. The installer also applies `iw dev <interface> set power_save off` immediately. It does not disconnect/reconnect the network, restart NetworkManager, change the Wi-Fi band or access point, or modify credentials. Repeat runs keep the profile setting and reapply the live adapter setting. A laptop using only Ethernet, an inactive Wi-Fi profile, or a network managed without NetworkManager is skipped; connect the intended Wi-Fi network and rerun the installer to configure it. Other saved, inactive profiles are left unchanged.
+
+If the driver rejects the live change or a command fails, the installer prints a warning and continues with the kiosk installation. Disabling Wi-Fi power saving can increase power consumption; it is intended to improve remote kiosk availability and is not a guarantee against every network failure. It is separate from whole-system suspend and Wi-Fi Wake-on-LAN.
+
+To inspect the result locally, substitute the actual interface and profile UUID:
+
+```sh
+nmcli --get-values GENERAL.CON-UUID device show <interface>
+nmcli --get-values 802-11-wireless.powersave connection show uuid <profile-uuid>
+/usr/sbin/iw dev <interface> get power_save
+```
+
+Expected results are `disable` (or `2`, depending on nmcli version/output format) for the profile and `Power save: off` for the adapter. To restore NetworkManager defaults instead, set `sudo nmcli connection modify uuid <profile-uuid> 802-11-wireless.powersave 0`. This changes the next profile activation; it does not restore the live driver setting immediately. Use the previous value printed by the installer if the profile originally had an explicit policy instead of the default.
+
 ## Home Assistant setup and automatic discovery
 
 Install the PCX86-kiosk integration from HACS and restart Home Assistant. Configure the panel with the same MQTT broker that Home Assistant uses. When the agent connects, it publishes a retained discovery announcement; Home Assistant then offers the panel for confirmation. The dialog asks only for a device name and an optional area. Its device ID, MAC address, IP address, and MQTT topics are read from the announcement.

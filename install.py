@@ -59,6 +59,62 @@ def install_file_with_sudo(source: Path, target: str, mode: str):
     )
 
 
+def configure_wifi_power_saving(net_dir: Path = Path("/sys/class/net")) -> None:
+    """Disable power saving on active NM Wi-Fi profiles without reconnecting."""
+    nmcli = shutil.which("nmcli")
+    iw = shutil.which("iw") or (
+        "/usr/sbin/iw" if Path("/usr/sbin/iw").is_file() else None
+    )
+    if not nmcli:
+        print("NetworkManager/nmcli is unavailable; Wi-Fi power saving was not changed.")
+        return
+
+    def run(command):
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=20, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            print("WARNING: Wi-Fi configuration command failed or timed out; check network settings.")
+            return None
+        if result.returncode:
+            print(f"WARNING: Wi-Fi configuration command failed (exit {result.returncode}); check network settings.")
+            return None
+        return result
+
+    active = False
+    for wireless in sorted(net_dir.glob("*/wireless")):
+        if not wireless.is_dir():
+            continue
+        interface = wireless.parent.name
+        connection = run([nmcli, "--get-values", "GENERAL.CON-UUID", "device", "show", interface])
+        if connection is None:
+            continue
+        uuid = connection.stdout.strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", uuid):
+            continue  # Disconnected or not managed by NetworkManager.
+        active = True
+        previous = run([nmcli, "--get-values", "802-11-wireless.powersave", "connection", "show", "uuid", uuid])
+        if previous is None:
+            continue
+        if previous.stdout.strip() not in ("2", "disable"):
+            changed = run(["sudo", nmcli, "--wait", "15", "connection", "modify", "uuid", uuid,
+                           "802-11-wireless.powersave", "2"])
+            if changed is None:
+                continue
+            print(f"Wi-Fi {interface}: saved powersave=2 for profile UUID {uuid} (previously {previous.stdout.strip()}).")
+        else:
+            print(f"Wi-Fi {interface}: profile already has power saving disabled.")
+        if not iw:
+            print(f"WARNING: iw is unavailable; {interface} has persistent settings only, not applied live.")
+        elif run(["sudo", iw, "dev", interface, "set", "power_save", "off"]) is not None:
+            print(f"Wi-Fi {interface}: power saving disabled now, without disconnecting.")
+        else:
+            print(f"WARNING: {interface} profile was saved, but the driver did not apply power saving off live.")
+    if not active:
+        print("No active NetworkManager Wi-Fi profile found; Wi-Fi power saving was not changed.")
+
+
 def main():
     if os.geteuid() == 0:
         raise SystemExit("Run this installer as the kiosk desktop user, without sudo.")
@@ -130,6 +186,9 @@ def main():
         ],
         check=True,
     )
+
+    print("Disabling Wi-Fi power saving on active NetworkManager Wi-Fi profiles.")
+    configure_wifi_power_saving()
 
     install_dir = Path.home() / ".local/lib/pcx86-kiosk"
     autostart_dir = Path.home() / ".config/autostart"
