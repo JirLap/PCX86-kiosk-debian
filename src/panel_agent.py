@@ -85,14 +85,19 @@ class PanelAgent:
         self._updates_available: int | None = None
         self._update_check_running = False
         self._update_check_lock = threading.Lock()
+        self._display_sleep = self.config.get("display_sleep")
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     def on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code != 0:
             LOGGER.warning("MQTT connection failed: %s", reason_code)
             return
         client.subscribe(self.command_topic, qos=1)
-        self.publish_status()
-        self.publish_discovery()
+        self.publish_status_safely()
+        try:
+            self.publish_discovery()
+        except Exception:
+            LOGGER.exception("Cannot publish discovery; MQTT connection remains active")
 
     def on_disconnect(self, client, userdata, *args):
         if not self._stop.is_set():
@@ -108,6 +113,26 @@ class PanelAgent:
             updated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
         self.client.publish(self.status_topic, json.dumps(status), qos=1, retain=True)
+
+    def publish_status_safely(self):
+        """A failed sensor read must not terminate the MQTT worker or main loop."""
+        try:
+            self.publish_status()
+        except Exception:
+            LOGGER.exception("Status collection failed; will retry")
+
+    def network_loop(self):
+        """Let Paho reconnect normally, and recover if an unexpected callback fails."""
+        while not self._stop.is_set():
+            try:
+                self.client.loop_forever(retry_first_connection=True)
+            except Exception:
+                LOGGER.exception("MQTT worker failed; reconnecting in 5 seconds")
+            if self._stop.wait(5):
+                break
+            self.client.connect_async(
+                self.config["mqtt_host"], int(self.config.get("mqtt_port", 1883)), keepalive=45
+            )
 
     def publish_discovery(self):
         """Publish retained metadata for Home Assistant's MQTT config-flow discovery."""
@@ -137,6 +162,7 @@ class PanelAgent:
             "uptime_seconds": int(time.time() - psutil.boot_time()),
             "kiosk_url": self.config["kiosk_url"],
             "chromium": "running" if self.chromium_running() else "stopped",
+            "power_mode": "display_sleep" if self._display_sleep else "awake",
         }
         cpu_temp = self.cpu_temperature()
         if cpu_temp is not None:
@@ -148,7 +174,7 @@ class PanelAgent:
         wifi = self.wifi_signal(interface) if interface else None
         if wifi is not None:
             status["wifi_signal_dbm"] = wifi
-        monitor = self.monitor_state()
+        monitor = "off" if self._display_sleep else self.monitor_state()
         if monitor is not None:
             status["monitor"] = monitor
         volume = self.audio_volume()
@@ -248,8 +274,15 @@ class PanelAgent:
 
     @staticmethod
     def chromium_pids() -> list[int]:
-        result = run(["/usr/bin/pgrep", "-f", "--", "--kiosk"])
-        return [int(value) for value in result.stdout.split() if value.isdigit()]
+        pids = []
+        for process in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                info = process.info
+                if "chromium" in (info["name"] or "").lower() and "--kiosk" in (info["cmdline"] or []):
+                    pids.append(info["pid"])
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return pids
 
     def chromium_running(self) -> bool:
         return bool(self.chromium_pids())
@@ -375,11 +408,11 @@ class PanelAgent:
         try:
             self._dispatch(command)
             self._result = "ok"
-        except (OSError, ValueError, subprocess.TimeoutExpired) as err:
+        except Exception as err:
             self._result = f"error: {err}"
             LOGGER.exception("Command failed: %s", self._last_command)
         finally:
-            self.publish_status()
+            self.publish_status_safely()
 
     def _dispatch(self, command: str):
         if command.startswith("set_url:"):
@@ -405,9 +438,10 @@ class PanelAgent:
             raise ValueError("unsupported command")
 
         if command in ("wake", "screen_on"):
-            self.checked(["/usr/bin/xset", "dpms", "force", "on"])
-        elif command in ("sleep", "screen_off"):
-            self.checked(["/usr/bin/xset", "dpms", "force", "off"])
+            self.wake_display()
+        elif command in ("sleep", "screen_off", "suspend"):
+            # Legacy 'suspend' commands also use the remotely recoverable mode.
+            self.sleep_display()
         elif command in ("chromium_start", "kiosk_start"):
             self.start_kiosk()
         elif command in ("chromium_stop", "kiosk_stop"):
@@ -433,8 +467,6 @@ class PanelAgent:
             self.checked(["/usr/bin/systemctl", "--user", "start", "pcx86-camera.service"])
         elif command == "camera_stop":
             self.checked(["/usr/bin/systemctl", "--user", "stop", "pcx86-camera.service"])
-        elif command == "suspend":
-            self.start_power_action("suspend")
         elif command == "reboot":
             self.start_power_action("reboot")
         elif command == "shutdown":
@@ -452,7 +484,7 @@ class PanelAgent:
     @staticmethod
     def start_power_action(action: str):
         """Start only the root helper's fixed power actions without waiting for resume."""
-        if action not in ("suspend", "reboot", "shutdown"):
+        if action not in ("reboot", "shutdown"):
             raise ValueError("unsupported power action")
         process = subprocess.Popen(
             ["/usr/bin/sudo", "-n", "/usr/local/sbin/pcx86-power", action],
@@ -462,9 +494,39 @@ class PanelAgent:
             text=True,
         )
         time.sleep(0.15)
-        if process.poll() is not None:
+        if process.poll() not in (None, 0):
             detail = process.stderr.read().strip() if process.stderr else ""
             raise RuntimeError(detail or f"power helper exited {process.returncode}")
+
+    def sleep_display(self):
+        """Stop rendering and turn off the display while retaining SSH/MQTT/audio."""
+        if not self._display_sleep:
+            self._display_sleep = {
+                "brightness": self.brightness(),
+                "restore_kiosk": self.chromium_running(),
+            }
+            self.config["display_sleep"] = self._display_sleep
+            self.write_config()
+        self.checked(["/usr/bin/xset", "+dpms"])
+        self.checked(["/usr/bin/xset", "dpms", "0", "0", "0"])
+        self.checked(["/usr/bin/xset", "dpms", "force", "off"])
+        if self._display_sleep.get("brightness") is not None:
+            self.set_brightness(0)
+        self.stop_kiosk()
+
+    def wake_display(self):
+        """Restore the saved brightness and only the browser that was running."""
+        saved = self._display_sleep or {}
+        self.checked(["/usr/bin/xset", "+dpms"])
+        self.checked(["/usr/bin/xset", "dpms", "0", "0", "0"])
+        self.checked(["/usr/bin/xset", "dpms", "force", "on"])
+        if saved.get("brightness") is not None:
+            self.set_brightness(saved["brightness"])
+        if saved.get("restore_kiosk"):
+            self.start_kiosk()
+        self._display_sleep = None
+        self.config.pop("display_sleep", None)
+        self.write_config()
 
     def set_kiosk_url(self, value: str):
         if len(value) > 2048:
@@ -510,11 +572,16 @@ class PanelAgent:
 
     def stop_kiosk(self):
         pids = self.chromium_pids()
+        processes = []
         for pid in pids:
             try:
+                processes.append(psutil.Process(pid))
                 os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
+            except (ProcessLookupError, psutil.NoSuchProcess):
                 continue
+        _, alive = psutil.wait_procs(processes, timeout=3)
+        if alive:
+            raise RuntimeError("Kiosk browser did not stop within three seconds")
 
     def restart_kiosk(self):
         self.stop_kiosk()
@@ -530,15 +597,19 @@ class PanelAgent:
         ])
 
     def run(self):
-        self.start_kiosk()
+        if self._display_sleep:
+            self.sleep_display()
+        else:
+            self.start_kiosk()
         self.client.connect_async(
             self.config["mqtt_host"], int(self.config.get("mqtt_port", 1883)), keepalive=45
         )
-        self.client.loop_start()
+        worker = threading.Thread(target=self.network_loop, name="pcx86-mqtt", daemon=True)
+        worker.start()
         try:
             while not self._stop.wait(int(self.config.get("status_interval", 30))):
                 if self.client.is_connected():
-                    self.publish_status()
+                    self.publish_status_safely()
         finally:
             self._stop.set()
             if self.client.is_connected():
@@ -549,7 +620,7 @@ class PanelAgent:
                     retain=True,
                 )
             self.client.disconnect()
-            self.client.loop_stop()
+            worker.join(timeout=10)
 
 
 def main():

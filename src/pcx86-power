@@ -3,20 +3,8 @@ set -eu
 
 case "${1:-}" in
   suspend)
-    found=0
-    for path in /sys/class/net/*/wireless; do
-      [ -d "$path" ] || continue
-      interface=${path%/wireless}
-      interface=${interface##*/}
-      found=1
-      phy_path=$(readlink -f "/sys/class/net/$interface/phy80211")
-      [ -n "$phy_path" ] || { echo "Cannot determine the Wi-Fi PHY for $interface" >&2; exit 1; }
-      phy=${phy_path##*/}
-      /usr/sbin/iw phy "$phy" wowlan enable magic-packet
-    done
-    [ "$found" -eq 1 ] || { echo "No Wi-Fi interface found for WoWLAN" >&2; exit 1; }
-    /usr/bin/systemctl suspend
-    ;;
+    echo "System suspend is disabled. Use MQTT sleep/wake for display sleep." >&2
+    exit 2 ;;
   reboot)
     /usr/bin/systemctl reboot
     ;;
@@ -41,7 +29,7 @@ case "${1:-}" in
     [ "$found" -eq 1 ] || { echo "No backlight interface found" >&2; exit 1; }
     ;;
   *)
-    echo "Allowed actions: suspend, reboot, shutdown, brightness 0..100" >&2
+    echo "Allowed actions: reboot, shutdown, brightness 0..100" >&2
     exit 2
     ;;
 esac

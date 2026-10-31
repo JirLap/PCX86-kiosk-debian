@@ -60,11 +60,19 @@ For device ID `kiosk`, the agent publishes a retained announcement on `pcx86_kio
 
 Status includes available CPU, memory, disk, uptime, update count, temperature, battery, display, Chromium, camera, audio and microphone information. Network and device information includes hostname, IP address, MAC address, network interface, broadcast address, Wi-Fi network and signal, operating system, kernel, architecture and hardware manufacturer/model when Linux provides them. Unavailable hardware details are omitted.
 
-The agent accepts only fixed, allow-listed commands, including status refresh, kiosk URL change and page refresh, browser start/stop/restart, display on/off, brightness and volume changes, mute controls, camera service start/stop, suspend, reboot and shutdown. It ignores retained command messages. MQTT credentials stay in the panel's private configuration; restrict broker ACLs to each device's discovery, status and command topics.
+The agent accepts only fixed, allow-listed commands, including status refresh, kiosk URL change and page refresh, browser start/stop/restart, display on/off, brightness and volume changes, mute controls, camera service start/stop, display sleep/wake, reboot and shutdown. It ignores retained command messages. MQTT credentials stay in the panel's private configuration; restrict broker ACLs to each device's discovery, status and command topics.
 
-## Screen off, suspend and wake
+## Display sleep and wake (network stays online)
 
-`sleep` and `wake` only turn the display off and on. `suspend` requests whole-system suspend and is separate. The agent refuses suspend if it cannot arm Wi-Fi Wake-on-LAN magic-packet support. Successful wake also depends on the laptop adapter, driver, firmware, access point and router. While the laptop is suspended it is disconnected from MQTT; Home Assistant must send a Wake-on-LAN packet to the configured Wi-Fi MAC address and broadcast network. Verify this path before relying on suspend.
+`sleep` / `screen_off` enter a remotely recoverable low-power display mode. The agent saves the previous backlight brightness and whether Chromium was running, turns the display off with X11 DPMS, sets supported backlights to zero, and stops the kiosk browser to avoid dashboard/video rendering. It does not suspend Linux or disable Wi-Fi. MQTT, SSH, the separate Sendspin player and independently running voice services remain available. Audio playing inside Chromium stops with the browser. Power consumption still depends on the hardware and the services left running; this is not ACPI suspend.
+
+`wake` / `screen_on` are normal MQTT commands. They restore the saved brightness and restart Chromium only if it was running before display sleep. Display state is stored in the private agent configuration so an agent restart does not lose the restore values. Repeated sleep commands do not overwrite the saved brightness with zero. DPMS automatic timeouts are disabled; the commands control display sleep explicitly.
+
+For compatibility with older integration releases, the old MQTT `suspend` command now also enters display sleep. The root power helper rejects whole-system suspend. Neither the installer nor the integration relies on magic-packet wake. Physical power-off cannot be reversed over MQTT.
+
+The MQTT worker reconnects after network interruptions. Callback/telemetry errors are logged and no longer terminate its network loop; an unexpected worker exception triggers a retry after five seconds. Installer-created desktop startup writes logs to `~/.local/state/pcx86-kiosk/agent.log`.
+
+When upgrading from the original suspend implementation, update the Debian companion and restart its desktop agent first, then update the Home Assistant integration to 0.3.4 or newer. The Debian installer's normal logout/login activation is sufficient; an HA restart alone does not update the panel agent.
 
 ## Camera and Voice Assist
 

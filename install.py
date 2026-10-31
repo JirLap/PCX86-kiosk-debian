@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import subprocess
 import tempfile
 
@@ -232,6 +233,18 @@ def main():
     temporary.replace(config_path)
 
     agent_entry = autostart_dir / "pcx86-kiosk-agent.desktop"
+    log_dir = Path.home() / ".local/state/pcx86-kiosk"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(log_dir, 0o700)
+    launcher = install_dir / "start-agent.sh"
+    launcher.write_text(
+        "#!/bin/sh\numask 077\nexec /usr/bin/python3 "
+        + shlex.quote(str(install_dir / "panel_agent.py"))
+        + " --config " + shlex.quote(str(config_path))
+        + " >> " + shlex.quote(str(log_dir / "agent.log")) + " 2>&1\n",
+        encoding="utf-8",
+    )
+    os.chmod(launcher, 0o755)
     legacy_entry = autostart_dir / "panel-mqtt-agent.desktop"
     if legacy_entry.exists():
         legacy_backup = unique_backup_path(legacy_entry)
@@ -243,18 +256,18 @@ def main():
         "Type=Application\n"
         "Name=PCX86 kiosk agent\n"
         "Comment=MQTT telemetry and safe panel controls\n"
-        f'Exec=/usr/bin/python3 "{install_dir / "panel_agent.py"}" --config "{config_path}"\n'
+        f'Exec="{launcher}"\n'
         "Terminal=false\nX-GNOME-Autostart-enabled=true\n",
         encoding="utf-8",
     )
     os.chmod(agent_entry, 0o644)
 
-    print("Installing the restricted root helper for suspend, reboot, and shutdown.")
+    print("Installing the restricted root helper for brightness, reboot, and shutdown.")
     install_file_with_sudo(POWER_HELPER, "/usr/local/sbin/pcx86-power", "0755")
     sudoers = Path(tempfile.mkstemp(prefix="pcx86-sudoers-")[1])
     sudoers.write_text(
-        f"{username} ALL=(root) NOPASSWD: /usr/local/sbin/pcx86-power suspend, "
-        "/usr/local/sbin/pcx86-power reboot, /usr/local/sbin/pcx86-power shutdown, "
+        f"{username} ALL=(root) NOPASSWD: /usr/local/sbin/pcx86-power reboot, "
+        "/usr/local/sbin/pcx86-power shutdown, "
         "/usr/local/sbin/pcx86-power brightness *\n",
         encoding="utf-8",
     )

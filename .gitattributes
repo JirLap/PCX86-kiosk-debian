@@ -1,0 +1,2 @@
+*.sh text eol=lf
+src/pcx86-power text eol=lf
