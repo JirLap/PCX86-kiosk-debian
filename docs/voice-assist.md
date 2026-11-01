@@ -77,6 +77,18 @@ If there is no microphone input, check source selection, physical mute/gain, the
 
 After setup, also test physical microphone mute, display sleep/wake, a voice-service restart and a laptop reboot. Reboot is a commissioning check, not something the installer performs automatically. Reliable wake detection and echo handling depend on the laptop's microphone placement and speakers.
 
+### Microphone levels and missing wake-word responses
+
+With voice installed, the shell launcher can measure input levels without restarting anything or changing settings:
+
+```sh
+sh ~/pcx86-kiosk-install.sh --voice --check-microphone
+```
+
+It displays the currently active wake word from HA's saved preferences, physical mute/volume and five seconds of signal levels. Press Enter and speak near the microphone. Audio stays in memory and is not saved. A clear increase while speaking confirms capture; near-silent values need an input/mute check. A large clipped percentage indicates excessive gain or microphone boost, which can prevent recognition even though the microphone is working. Lower physical capture gain in the XFCE audio settings and repeat. A value above 100% can worsen clipping; increasing gain is not a general fix. Software microphone volume in HA cannot restore an already distorted input. The installer preserves physical gain rather than guessing one value for every laptop.
+
+HA can change the active wake word during setup. Check the diagnostic's **Active wake words** or the device's voice configuration: saying Hey Jarvis will not activate a satellite configured for Okay Nabu. If capture is clear and the correct word still fails, tune sensitivity in small steps as described in [LVA's configuration guide](https://github.com/OHF-Voice/linux-voice-assistant/blob/main/docs/configuration.md).
+
 ## Disable or remove voice
 
 Disable automatic startup and stop microphone capture:

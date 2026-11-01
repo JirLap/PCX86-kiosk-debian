@@ -151,11 +151,18 @@ def main():
     parser.add_argument("--output-device")
     parser.add_argument("--wake-word", choices=MODELS)
     parser.add_argument("--yes", action="store_true", help="Use supplied arguments/existing config without prompting")
+    parser.add_argument("--check-microphone", action="store_true", help="Check installed voice capture without reinstalling or changing settings")
     args = parser.parse_args()
     if os.geteuid() == 0:
         raise SystemExit("Run as the kiosk desktop user, without sudo.")
     if not Path("/etc/debian_version").exists():
         raise SystemExit("This installer targets Debian Linux.")
+    if args.check_microphone:
+        python = Path.home()/".local/share/pcx86-voice"/('lva-'+LVA_VERSION)/".venv/bin/python"
+        if not python.exists() or not (Path.home()/".config/pcx86-voice/config.json").exists():
+            raise SystemExit("Install voice first, then repeat --voice --check-microphone.")
+        subprocess.run([str(python),str(Path(__file__).with_name("check_microphone.py"))],check=True)
+        return
     username = getpass.getuser()
     if not re.fullmatch(r"[a-z_][a-z0-9_-]*\$?", username):
         raise SystemExit("Unsupported Linux username")
