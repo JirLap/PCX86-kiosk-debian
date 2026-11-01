@@ -167,6 +167,50 @@ class DisplaySleepTests(unittest.TestCase):
         self.assertIn('--password-store=basic', args)
 
 
+class BrowserShutdownTests(unittest.TestCase):
+    def exercise(self, *, stubborn=False, zombie=False, remains=False):
+        from unittest.mock import patch
+        parent = Mock(pid=100)
+        child = Mock(pid=101)
+        parent.children.return_value = [child]
+        parent.status.return_value = 'running'
+        child.status.return_value = 'zombie' if zombie else 'running'
+        waiting = Mock(side_effect=[([], [child] if stubborn or zombie else []), ([], [child] if remains else [])])
+        api = SimpleNamespace(Process=Mock(return_value=parent), NoSuchProcess=ProcessLookupError,
+                              STATUS_ZOMBIE='zombie', STATUS_DEAD='dead', wait_procs=waiting)
+        agent = PanelAgent.__new__(PanelAgent)
+        agent.chromium_pids = Mock(return_value=[100])
+        with patch.dict(PanelAgent.stop_kiosk.__globals__, psutil=api):
+            if remains:
+                with self.assertRaises(RuntimeError):
+                    agent.stop_kiosk()
+            else:
+                agent.stop_kiosk()
+        api.Process.assert_called_once_with(100)
+        parent.children.assert_called_once_with(recursive=True)
+        parent.terminate.assert_called_once()
+        return child, waiting
+
+    def test_graceful_shutdown_stops_workers_too(self):
+        child, waiting = self.exercise()
+        child.terminate.assert_called_once()
+        child.kill.assert_not_called()
+        self.assertEqual(waiting.call_count, 1)
+
+    def test_hung_worker_is_killed_without_blocking_display_sleep(self):
+        child, waiting = self.exercise(stubborn=True)
+        child.kill.assert_called_once()
+        self.assertEqual(waiting.call_count, 2)
+
+    def test_dead_worker_is_not_treated_as_a_running_browser(self):
+        child, waiting = self.exercise(zombie=True)
+        child.kill.assert_not_called()
+        child.terminate.assert_not_called()
+
+    def test_real_failure_still_propagates(self):
+        self.exercise(stubborn=True, remains=True)
+
+
 class MqttRecoveryTests(unittest.TestCase):
     def test_command_failure_does_not_escape_mqtt_callback(self):
         agent = PanelAgent.__new__(PanelAgent)

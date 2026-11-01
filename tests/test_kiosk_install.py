@@ -81,6 +81,9 @@ class KioskInstallTests(unittest.TestCase):
                 self.assertEqual(saved['browser_password_store'], 'basic')
                 self.assertFalse(any('password store' in label for label in prompts))
                 self.assertFalse(legacy.exists())
+                launcher = (home / '.local/lib/pcx86-kiosk/start-agent.sh').read_text()
+                self.assertLess(launcher.index('configure_desktop.py'), launcher.index('exec /usr/bin/python3'))
+                self.assertTrue((home / '.local/lib/pcx86-kiosk/configure_desktop.py').exists())
                 self.assertEqual(len(list(legacy.parent.glob('chromium.desktop.*.bak'))), 1)
                 if previous is not None:
                     for key, value in original.items():

@@ -671,17 +671,44 @@ class PanelAgent:
         )
 
     def stop_kiosk(self):
-        pids = self.chromium_pids()
-        processes = []
-        for pid in pids:
+        # Snapshot only kiosk browser trees, including their GPU/render workers.
+        # Signalling only the main process can leave workers and a hung browser.
+        processes = {}
+        for pid in self.chromium_pids():
             try:
-                processes.append(psutil.Process(pid))
-                os.kill(pid, signal.SIGTERM)
-            except (ProcessLookupError, psutil.NoSuchProcess):
+                parent = psutil.Process(pid)
+                processes[parent.pid] = parent
+                for child in parent.children(recursive=True):
+                    processes[child.pid] = child
+            except psutil.NoSuchProcess:
                 continue
-        _, alive = psutil.wait_procs(processes, timeout=3)
+
+        def live(items):
+            result = []
+            for process in items:
+                try:
+                    if process.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
+                        result.append(process)
+                except psutil.NoSuchProcess:
+                    pass
+            return result
+
+        for process in live(processes.values()):
+            try:
+                process.terminate()
+            except psutil.NoSuchProcess:
+                pass
+        _, alive = psutil.wait_procs(list(processes.values()), timeout=5)
+        alive = live(alive)
+        for process in alive:
+            try:
+                process.kill()
+            except psutil.NoSuchProcess:
+                pass
         if alive:
-            raise RuntimeError("Kiosk browser did not stop within three seconds")
+            _, alive = psutil.wait_procs(alive, timeout=2)
+        if live(alive):
+            raise RuntimeError("Kiosk browser processes did not stop after terminate/kill")
 
     def restart_kiosk(self):
         self.stop_kiosk()

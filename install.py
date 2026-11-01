@@ -224,6 +224,11 @@ def main():
     os.chmod(config_dir, 0o700)
     shutil.copy2(AGENT_SOURCE, install_dir / "panel_agent.py")
     os.chmod(install_dir / "panel_agent.py", 0o755)
+    desktop_setup = install_dir / 'configure_desktop.py'
+    shutil.copy2(REPO_ROOT / 'configure_desktop.py', desktop_setup)
+    os.chmod(desktop_setup, 0o755)
+    print('Disabling automatic screen locking for this dedicated kiosk user.')
+    subprocess.run([sys.executable, str(desktop_setup)], check=True)
 
     if config_path.exists():
         backup = unique_backup_path(config_path)
@@ -266,7 +271,10 @@ def main():
     os.chmod(log_dir, 0o700)
     launcher = install_dir / "start-agent.sh"
     launcher.write_text(
-        "#!/bin/sh\numask 077\nexec /usr/bin/python3 "
+        "#!/bin/sh\numask 077\n/usr/bin/python3 "
+        + shlex.quote(str(desktop_setup))
+        + " >> " + shlex.quote(str(log_dir / "agent.log")) + " 2>&1\n"
+        + "exec /usr/bin/python3 "
         + shlex.quote(str(install_dir / "panel_agent.py"))
         + " --config " + shlex.quote(str(config_path))
         + " >> " + shlex.quote(str(log_dir / "agent.log")) + " 2>&1\n",
