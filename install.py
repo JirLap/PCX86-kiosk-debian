@@ -125,6 +125,17 @@ def install_optional_voice() -> None:
         print(f"Optional voice installation did not complete: {error}. Kiosk installation is prepared; retry voice with --voice.")
 
 
+def install_browser_login(config_path: Path) -> None:
+    """Run optional interactive HA login outside the MQTT configuration process."""
+    try:
+        subprocess.run(['sudo', 'apt-get', 'install', '-y', '--no-install-recommends',
+                        'python3-selenium', 'chromium-driver'], check=True)
+        subprocess.run(['/usr/bin/python3', str(REPO_ROOT / 'setup_ha_login.py'),
+                        '--config', str(config_path)], check=True)
+    except (OSError, subprocess.CalledProcessError):
+        print('Optional HA browser sign-in did not complete. Kiosk installation is prepared; you can retry the installer or sign in on the panel.')
+
+
 def main():
     if os.geteuid() == 0:
         raise SystemExit("Run this installer as the kiosk desktop user, without sudo.")
@@ -311,6 +322,10 @@ def main():
             "0644",
         )
         lightdm_source.unlink(missing_ok=True)
+
+    print('Optional HA browser sign-in: enter the chosen HA user in this terminal (also works over SSH). No HA password is saved in kiosk configuration.')
+    if ask('Sign in to Home Assistant for the kiosk now?', 'n' if existing.get('browser_profile') else 'y').lower() in ('y', 'yes', 'a'):
+        install_browser_login(config_path)
 
     voice_installed = (Path.home() / ".config/pcx86-voice/config.json").exists()
     if ask("Install/update the optional Home Assistant voice satellite?", "y" if voice_installed else "n").lower() in ("y","yes","a"):

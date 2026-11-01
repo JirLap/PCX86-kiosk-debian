@@ -30,6 +30,16 @@ The agent configuration is stored in `~/.config/pcx86-kiosk/config.json` with pr
 
 To update the installer, run the same `wget` command again, then run `sh ~/pcx86-kiosk-install.sh`.
 
+## Home Assistant browser sign-in from the installer
+
+The normal installer offers **Sign in to Home Assistant for the kiosk now?** (yes on first setup). Run it in the panel terminal or over SSH from your computer. Enter the HA username and hidden password for the account the dashboard should use; these are separate from the MQTT credentials. If HA requests a two-factor code, enter it in the terminal too. The installer uses the standard HA login form and Remember me, so the session has that user's HA permissions. No trusted-network authentication or HA configuration change is needed.
+
+This optional step installs Debian's `python3-selenium` and matching `chromium-driver`, signs in with headless Chromium in a separate private profile, closes the browser, and verifies that the same HA user is still signed in after reopening it. Only then is `browser_profile` saved in the kiosk configuration. The agent uses this profile after logout/login or reboot and when reopening Chromium after display sleep. A failed attempt leaves the selected profile unchanged; the kiosk installation continues. Repeat installations offer to keep an already configured profile by default, or choose yes to sign in again/change accounts.
+
+The installer does not save the HA password in configuration or command-line arguments. The browser profile contains the saved HA session, just as after a manual login; protect the panel's desktop account and disk. With an `http://` HA URL, the login travels over your network without TLS. Existing browser profiles are preserved. Logging out/revoking the session in HA can require signing in again. This is installation-time login, not a service that stores and resubmits your password.
+
+**Development preview:** this path follows the current HA frontend login components; validate it against your HA installation. Standard HA username/password and a single code-based MFA step are supported. External SSO, choosing between several MFA methods, certificate errors, unavailable HA and changed login forms fail safely rather than bypassing authentication or TLS checks. Browser-session persistence is checked at runtime; a full Debian/HA hardware test is still required.
+
 ## Wi-Fi power saving
 
 During installation and repeat runs, the installer detects each active NetworkManager Wi-Fi profile and disables its power saving using `802-11-wireless.powersave=2`. It identifies profiles by UUID, so it works with arbitrary network names. This matches NetworkManager's [documented disable value](https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html).

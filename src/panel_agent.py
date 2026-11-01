@@ -649,10 +649,13 @@ class PanelAgent:
         if store not in ("auto", "basic"):
             raise ValueError("browser_password_store must be auto or basic")
         password_store_args = ["--password-store=basic"] if store == "basic" else []
+        profile = self.config.get("browser_profile")
+        profile_args = ["--user-data-dir=" + str(profile)] if profile else []
         subprocess.Popen(
             [
                 browser,
                 *password_store_args,
+                *profile_args,
                 "--kiosk",
                 "--app=" + self.config["kiosk_url"],
                 "--no-first-run",

@@ -155,6 +155,17 @@ class DisplaySleepTests(unittest.TestCase):
             args = launch.call_args.args[0]
             self.assertEqual('--password-store=basic' in args,store != 'auto')
 
+    def test_kiosk_uses_the_profile_authenticated_by_the_installer(self):
+        from unittest.mock import patch
+        agent = self.agent(browser=False)
+        agent.config.update(kiosk_url='http://ha.example/', browser_password_store='basic',
+                            browser_profile='/home/panel/.local/share/pcx86-kiosk/browser-profiles/ha-test')
+        with patch.object(namespace['subprocess'], 'Popen') as launch:
+            PanelAgent.start_kiosk(agent)
+        args = launch.call_args.args[0]
+        self.assertIn('--user-data-dir=' + agent.config['browser_profile'], args)
+        self.assertIn('--password-store=basic', args)
+
 
 class MqttRecoveryTests(unittest.TestCase):
     def test_command_failure_does_not_escape_mqtt_callback(self):
