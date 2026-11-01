@@ -12,6 +12,7 @@ import re
 import shutil
 import shlex
 import subprocess
+import sys
 import tempfile
 
 
@@ -305,8 +306,11 @@ def main():
         )
         lightdm_source.unlink(missing_ok=True)
 
+    voice_installed = (Path.home() / ".config/pcx86-voice/config.json").exists()
+    if ask("Install/update the optional Home Assistant voice satellite?", "y" if voice_installed else "n").lower() in ("y","yes","a"):
+        subprocess.run([sys.executable,str(REPO_ROOT/"install_voice.py")],check=True)
     print("Installation prepared. Log out and back in, or reboot, to start the kiosk agent.")
-    print("Camera streaming and Wyoming voice satellite need their optional services configured separately.")
+    print("Camera streaming needs its optional service. Voice can also be added with the shell launcher's --voice option.")
     print("MQTT credentials are stored in ~/.config/pcx86-kiosk/config.json with mode 600.")
 
 

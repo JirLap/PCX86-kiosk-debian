@@ -78,7 +78,16 @@ When upgrading from the original suspend implementation, update the Debian compa
 
 Camera use is optional and hardware-specific. The agent can report configured snapshot and RTSP URLs and control the `pcx86-camera.service`; it does not infer the camera device, audio capture source, streaming server, codecs or authentication. Configure and verify an HTTP JPEG snapshot and an RTSP stream separately before enabling the camera in Home Assistant. Keep camera endpoints on a trusted network or protect them with authentication.
 
-Voice Assist is separate from MQTT. Configure a Wyoming satellite service for the laptop's microphone and speaker, then add it through Home Assistant's Wyoming integration. See [`docs/voice-assist.md`](docs/voice-assist.md) for the integration boundary and setup checklist.
+Optional Voice Assist uses [Linux Voice Assistant](https://github.com/OHF-Voice/linux-voice-assistant) with Home Assistant's built-in **ESPHome** integration. It detects a wake word locally, captures a request for the selected HA Assist pipeline and plays its response through the existing PulseAudio speaker. Music remains on Music Assistant / Sendspin. MQTT continues to handle kiosk controls and telemetry.
+
+To add voice to an existing kiosk without rerunning the MQTT setup, download the current shell launcher and use its voice-only mode:
+
+```sh
+wget -O ~/pcx86-kiosk-install.sh https://raw.githubusercontent.com/JirLap/PCX86-kiosk-debian/main/install.sh
+sh ~/pcx86-kiosk-install.sh --voice
+```
+
+The installer asks for the HA host/IP, microphone and speaker IDs, device name and wake word, with saved answers prefilled on repeat runs. It installs a pinned upstream release in a separate environment and limits its API access to the configured HA host. Then add the panel in **Settings → Devices & services → ESPHome**, port **6053**, and select your Assist pipeline. No HA restart is needed for this step. See [`docs/voice-assist.md`](docs/voice-assist.md) for prerequisites, device selection, network rules, microphone behavior, testing and removal. Voice is an optional final question in the normal installer as well.
 
 ## Remove
 

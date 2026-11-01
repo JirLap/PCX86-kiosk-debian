@@ -35,4 +35,12 @@ if [ ! -f "$source_dir/install.py" ] || [ ! -f "$source_dir/src/panel_agent.py" 
     exit 1
 fi
 
-python3 "$source_dir/install.py"
+case "${1:-}" in
+    --voice)
+        shift
+        test -f "$source_dir/install_voice.py" || { echo "Voice installer missing from archive." >&2; exit 1; }
+        python3 "$source_dir/install_voice.py" "$@"
+        ;;
+    "") python3 "$source_dir/install.py" ;;
+    *) echo "Usage: sh pcx86-kiosk-install.sh [--voice [voice installer options]]" >&2; exit 2 ;;
+esac
