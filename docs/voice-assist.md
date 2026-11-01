@@ -89,6 +89,26 @@ It displays the currently active wake word from HA's saved preferences, physical
 
 HA can change the active wake word during setup. Check the diagnostic's **Active wake words** or the device's voice configuration: saying Hey Jarvis will not activate a satellite configured for Okay Nabu. If capture is clear and the correct word still fails, tune sensitivity in small steps as described in [LVA's configuration guide](https://github.com/OHF-Voice/linux-voice-assistant/blob/main/docs/configuration.md).
 
+### Adjust microphone gain if the panel does not respond
+
+Adding the satellite through ESPHome does not calibrate the physical microphone gain. The Debian installer preserves the existing setting. Before increasing it, confirm that the satellite is connected to HA, both microphone mute controls are off, and you are saying the active wake word shown in HA.
+
+1. Run the microphone check above and speak at the distance where you intend to use the panel. If the input is already clipping, reduce gain instead of increasing it.
+2. In HA, open the panel's **PCX86-kiosk** device and adjust **Microphone volume** (**Hlasitost mikrofonu** in Czech). This controls the default PulseAudio input. Make sure that default input is also the microphone selected for voice; with multiple microphones, use the Debian audio settings or the explicit source commands below instead.
+3. If speech levels are too low, increase the current value in small steps, for example from 15% to 20%, then 25%, testing the wake word after each change. These are examples, not universal settings: the required level depends on the microphone and distance. Avoid jumping directly to 100% or above.
+4. Repeat the microphone check. Aim for a clear increase while speaking with little or no clipping. Excessive gain or microphone boost can distort speech and make recognition worse.
+5. Once the wake word triggers, wait for the listening sound and say a short request. Verify the spoken response as well as the wake sound. No HA restart is needed for gain changes.
+
+On the Debian desktop, the equivalent control is in the sound settings under **Input Devices** (for example, `pavucontrol` if installed). Select the intended microphone, ensure it is unmuted and adjust its input volume. To use a terminal, list source IDs and replace `SOURCE_ID` below with the microphone ID configured for voice:
+
+```sh
+pactl list short sources
+pactl get-source-volume SOURCE_ID
+pactl set-source-volume SOURCE_ID 25%
+```
+
+The last command sets an example test level; choose a level appropriate to the measurements. Note the previous value so it can be restored. The ESPHome voice device's separate **Mic Volume** setting scales audio inside LVA; it does not replace physical input calibration or repair clipping that has already occurred.
+
 ## Disable or remove voice
 
 Disable automatic startup and stop microphone capture:

@@ -89,6 +89,8 @@ sh ~/pcx86-kiosk-install.sh --voice
 
 The installer asks for the HA host/IP, microphone and speaker IDs, device name and wake word, with saved answers prefilled on repeat runs. It installs a pinned upstream release in a separate environment and limits its API access to the configured HA host. Then add the panel in **Settings → Devices & services → ESPHome**, port **6053**, and select your Assist pipeline. No HA restart is needed for this step. See [`docs/voice-assist.md`](docs/voice-assist.md) for prerequisites, device selection, network rules, microphone behavior, testing and removal. Voice is an optional final question in the normal installer as well.
 
+If the panel does not respond to its wake word, follow the [microphone gain guide](docs/voice-assist.md#adjust-microphone-gain-if-the-panel-does-not-respond). It covers the HA/desktop controls, gradual gain adjustments and a signal-level check to avoid clipping. ESPHome setup does not automatically calibrate physical microphone gain.
+
 ## Remove
 
 Remove the PCX86-kiosk entry from Home Assistant. On the Debian panel, remove the `pcx86-kiosk-agent.desktop` autostart entry, `~/.local/lib/pcx86-kiosk/`, and `~/.config/pcx86-kiosk/`. If this project installed them, remove `/etc/sudoers.d/pcx86-kiosk` and `/usr/local/sbin/pcx86-power`. Remove the optional LightDM setting only if it was enabled by this installer.
