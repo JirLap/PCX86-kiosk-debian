@@ -16,7 +16,11 @@ The installer pins LVA to **v1.1.18**, commit `b55d36af522c263eeed4e023d6ebf30da
 
 ## Install or update voice only
 
-List microphone and speaker IDs in the desktop user's terminal:
+The installer offers the real microphone returned by `pactl get-default-source` as the default. Press Enter to accept it, or type another listed source ID. An available saved microphone or explicit `--input-device` takes precedence. `.monitor` sources and unavailable IDs are rejected. In interactive mode an unavailable saved/requested microphone falls back to detection; with `--yes` it fails rather than silently selecting a different microphone. If the system default is a monitor or unavailable, select a real microphone from the displayed list manually.
+
+If no microphone is available or desktop audio cannot be reached, connect/check the microphone and choose `retry`, or press Enter to `skip` voice safely. Skipping leaves voice configuration and services unchanged and lets the normal kiosk installation finish. Other optional voice installation failures are reported without aborting the prepared kiosk. With `--yes`, no prompts are shown; an unavailable microphone produces a clear error without changing voice configuration/services.
+
+To inspect microphone and speaker IDs in the desktop user's terminal:
 
 ```sh
 pactl list short sources

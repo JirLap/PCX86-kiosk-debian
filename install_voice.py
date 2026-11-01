@@ -45,14 +45,54 @@ def systemd_quote(value: str) -> str:
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
 
 
+def audio_names(kind: str) -> set[str]:
+    result = subprocess.check_output(
+        ["pactl", "list", "short", kind], text=True, timeout=10
+    )
+    return {line.split()[1] for line in result.splitlines() if len(line.split()) >= 2}
+
+
+def select_microphone(preferred: str = "", *, interactive: bool = True) -> str | None:
+    """Select a real source, or skip before changing configuration/services."""
+    while True:
+        try:
+            if not shutil.which("pactl"):
+                raise ValueError("pactl is missing; install pulseaudio-utils first.")
+            sources = {name for name in audio_names("sources") if not name.endswith(".monitor")}
+            default = preferred
+            if interactive and default not in sources:
+                if default:
+                    print(f"Saved/requested microphone is unavailable or a monitor: {default}")
+                default = ""
+            if not default:
+                try:
+                    detected = subprocess.check_output(
+                        ["pactl", "get-default-source"], text=True, timeout=10
+                    ).strip()
+                except (OSError, subprocess.SubprocessError):
+                    detected = ""
+                default = detected if detected in sources else ""
+            if not sources:
+                raise ValueError("No real PulseAudio microphone is available (monitor sources are excluded).")
+            print("Available microphones: " + ", ".join(sorted(sources)))
+            selected = ask("PulseAudio microphone ID", default) if interactive else default
+            if selected in sources:
+                return selected
+            raise ValueError("Choose an available microphone ID; .monitor sources cannot be used.")
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            print(f"Microphone could not be verified: {error}")
+        if not interactive:
+            raise SystemExit("Voice microphone unavailable; existing configuration/services were left unchanged.")
+        if ask("Connect/check the microphone, then retry or skip voice installation (retry/skip)", "skip").lower() not in ("r", "retry"):
+            print("Voice installation skipped. Existing configuration/services were left unchanged.")
+            return None
+
+
 def validate_audio(config: dict) -> None:
     """Check the desktop audio session before changing any services."""
     if not shutil.which("pactl"):
         raise ValueError("pactl is missing. Install the kiosk companion and verify desktop audio first.")
-    def names(kind):
-        result = subprocess.check_output(["pactl", "list", "short", kind], text=True)
-        return {line.split()[1] for line in result.splitlines() if len(line.split()) >= 2}
-    sources, sinks = names("sources"), names("sinks")
+    sources, sinks = audio_names("sources"), audio_names("sinks")
     if config["input_device"] not in sources or config["input_device"].endswith(".monitor"):
         raise ValueError("Choose an available microphone ID from pactl list short sources, excluding .monitor sources.")
     output = config["output_device"]
@@ -175,10 +215,16 @@ def main():
     def setting(key, argument, label, default=""):
         value = argument if argument is not None else existing.get(key,default)
         return str(value) if args.yes else ask(label,str(value))
+    microphone = select_microphone(
+        args.input_device if args.input_device is not None else str(existing.get("input_device", "")),
+        interactive=not args.yes,
+    )
+    if microphone is None:
+        return
     config = {
         "name":setting("name",args.name,"Voice device name",socket.gethostname()+" Voice"),
         "ha_address":setting("ha_address",args.ha_address,"Home Assistant host/IP allowed to connect"),
-        "input_device":setting("input_device",args.input_device,"PulseAudio microphone ID (use pactl list short sources)"),
+        "input_device":microphone,
         "output_device":setting("output_device",args.output_device,"mpv output device (pulse or pulse/<sink-id>)","pulse"),
         "wake_word":setting("wake_word",args.wake_word,"Wake word (hey_jarvis/okay_nabu/hey_home_assistant)","hey_jarvis"),
         "port":6053,
@@ -188,7 +234,7 @@ def main():
     try:
         addresses = resolve_ha_addresses(config["ha_address"])
         validate_audio(config)
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         raise SystemExit(f"Voice settings could not be verified: {error}. Existing services were left unchanged.") from error
     if any(char in value for value in config.values() if isinstance(value,str) for char in "\r\n\x00"):
         raise SystemExit("Control characters are not allowed in voice settings")

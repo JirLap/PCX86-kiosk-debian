@@ -117,6 +117,14 @@ def configure_wifi_power_saving(net_dir: Path = Path("/sys/class/net")) -> None:
         print("No active NetworkManager Wi-Fi profile found; Wi-Fi power saving was not changed.")
 
 
+def install_optional_voice() -> None:
+    """Keep a failed optional voice setup from aborting the prepared kiosk."""
+    try:
+        subprocess.run([sys.executable, str(REPO_ROOT / "install_voice.py")], check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Optional voice installation did not complete: {error}. Kiosk installation is prepared; retry voice with --voice.")
+
+
 def main():
     if os.geteuid() == 0:
         raise SystemExit("Run this installer as the kiosk desktop user, without sudo.")
@@ -308,7 +316,7 @@ def main():
 
     voice_installed = (Path.home() / ".config/pcx86-voice/config.json").exists()
     if ask("Install/update the optional Home Assistant voice satellite?", "y" if voice_installed else "n").lower() in ("y","yes","a"):
-        subprocess.run([sys.executable,str(REPO_ROOT/"install_voice.py")],check=True)
+        install_optional_voice()
     print("Installation prepared. Log out and back in, or reboot, to start the kiosk agent.")
     print("Camera streaming needs its optional service. Voice can also be added with the shell launcher's --voice option.")
     print("MQTT credentials are stored in ~/.config/pcx86-kiosk/config.json with mode 600.")
