@@ -185,12 +185,10 @@ def main():
         str(camera_existing.get("stream_url") or ""),
     )
     legacy_browser = Path.home() / ".config/autostart/chromium.desktop"
-    legacy_basic = legacy_browser.exists() and "--password-store=basic" in legacy_browser.read_text()
-    default_store = existing.get("browser_password_store", "basic" if legacy_basic else "auto")
-    print("Chromium 'auto' uses the desktop keyring; 'basic' avoids its unlock dialog but does not provide keyring encryption. Use basic only for a dedicated kiosk profile.")
-    password_store = ask("Chromium password store (auto/basic)", default_store).lower()
-    if password_store not in ("auto", "basic"):
-        raise SystemExit("Choose auto or basic for Chromium password storage.")
+    # Automatic desktop login cannot unlock the user's login keyring. Apply this
+    # on repeat installs too, including configurations previously saved as auto.
+    password_store = "basic"
+    print("Chromium kiosk password store: basic (automatic setup without a keyring unlock prompt; browser secrets are not encrypted by the desktop keyring).")
 
     print("Installing Debian packages needed for the agent, kiosk, and hardware inspection.")
     subprocess.run(["sudo", "apt-get", "update"], check=True)
